@@ -703,8 +703,8 @@ int vCalculateTopBottom(int MouseStartY, int MouseEndY, int MouseStartX, int Mou
 	int iResult = TopRextY - fC;
 	iResult /= fM;
 
+	printf("결과다 : %d\n", iResult);
 	return iResult;
-	//printf("결과다 : %d\n", iResult);
 }
 
 int vCalculateLeftRight(int MouseStartY, int MouseEndY, int MouseStartX, int MouseEndX, int TopRextX){

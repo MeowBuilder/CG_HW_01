@@ -15,8 +15,21 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Main.cpp">
+    <ClCompile Include="13f.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="fragment.glsl">
+      <Filter>리소스 파일</Filter>
+    </None>
+    <None Include="vertex.glsl">
+      <Filter>리소스 파일</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="cube.obj">
+      <Filter>리소스 파일</Filter>
+    </Object>
   </ItemGroup>
 </Project>
