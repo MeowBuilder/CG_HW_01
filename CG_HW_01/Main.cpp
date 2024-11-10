@@ -11,12 +11,18 @@
 #include <fstream>
 #include <iterator>
 #include <random>
+#include <algorithm>
 
 using namespace std;
 
 random_device seeder;
 const auto seed = seeder.entropy() ? seeder() : time(nullptr);
 mt19937 eng(static_cast<mt19937::result_type>(seed));
+uniform_int_distribution<int> left_right(0, 1);
+uniform_real_distribution<float> location_y(-0.3, 0.5);
+uniform_real_distribution<float> rand_velocity(0.01, 0.75);
+
+GLvoid destroyFunc(int value);
 
 const int WIN_X = 10, WIN_Y = 10;
 const int WIN_W = 800, WIN_H = 800;
@@ -152,14 +158,30 @@ std::vector<std::vector<unsigned int>> indexTriangles = {
 	}
 };
 
+std::vector<glm::vec3> color_ref = {
+glm::vec3(0.72, 0.45, 0.88),
+glm::vec3(0.15, 0.89, 0.34),
+glm::vec3(0.90, 0.56, 0.12),
+glm::vec3(0.22, 0.68, 0.91),
+glm::vec3(0.47, 0.33, 0.75),
+glm::vec3(0.84, 0.23, 0.65),
+glm::vec3(0.10, 0.94, 0.29),
+glm::vec3(0.31, 0.70, 0.54),
+glm::vec3(0.61, 0.48, 0.88),
+glm::vec3(0.27, 0.57, 0.43) };
+
 uniform_int_distribution<int> rand_shape(0, polygons.size()-1);
+uniform_int_distribution<int> rand_color(0, color_ref.size() - 1);
 
 std::vector<std::vector<glm::vec3>> onShape = {};
 std::vector<std::vector<unsigned int>> onShapeindex = {};
 std::vector<glm::vec3> location = {};
 std::vector<glm::vec3> velocity = {};
+std::vector<glm::vec3> colors = {};
 
 std::vector<glm::vec3> intersectionPoints;
+
+glm::vec3 gravity = { 0,-0.3,0 };
 
 class Mouse_Line
 {
@@ -193,7 +215,7 @@ public:
 		glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
 		glUniform3f(colorLocation, 0.0, 0.0, 1.0);
 
-		glDrawArrays(GL_LINES, 0, Line.size() * 3);
+		glDrawArrays(GL_LINES, 0, Line.size());
 	}
 	void Debug_print_xy() {
 		cout << "(" << start_x << ", " << start_y << ") -> (" << end_x << ", " << end_y << ")" << endl;
@@ -211,6 +233,233 @@ private:
 
 Mouse_Line ML1;
 bool b_ML1;
+
+class Bucket
+{
+public:
+	void init() {
+		glGenVertexArrays(1, &Bucket_VAO);
+		glBindVertexArray(Bucket_VAO);
+
+		glGenBuffers(1, &Bucket_VBO);
+		glGenBuffers(1, &Bucket_EBO);
+
+
+		glGenVertexArrays(1, &inBucket_VAO);
+		glBindVertexArray(inBucket_VAO);
+
+		glGenBuffers(1, &inBucket_VBO);
+		glGenBuffers(1, &inBucket_EBO);
+	}
+	void set_bucket() {
+		glBindVertexArray(Bucket_VAO);
+		glBindBuffer(GL_ARRAY_BUFFER, Bucket_VBO);
+		glBufferData(GL_ARRAY_BUFFER, Bucket_vertex.size() * sizeof(glm::vec3), Bucket_vertex.data(), GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Bucket_EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, Bucket_index.size() * sizeof(unsigned int), Bucket_index.data(), GL_STATIC_DRAW);
+
+		GLint positionAttribute = glGetAttribLocation(shaderProgramID, "positionAttribute");
+		glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(positionAttribute);
+		glBindVertexArray(0);
+	}
+	void Draw_bucket() {
+		set_bucket();
+		glBindVertexArray(Bucket_VAO);
+
+		glm::mat4 TR = glm::mat4(1.0f);
+		unsigned int modelLocation = glGetUniformLocation(shaderProgramID, "transform");
+		unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
+
+		TR = glm::translate(TR, bucket_location);
+		TR = glm::scale(TR, bucket_size);
+
+		glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
+		glUniform3f(colorLocation, 1.0, 0.0, 0.0);
+
+		glDrawElements(GL_TRIANGLES, Bucket_index.size(), GL_UNSIGNED_INT, (void*)(0));
+	}
+	void Move_bucket() {
+		bucket_location += bucket_velocity * 0.016f;
+		for (int i = 0; i < inBucket_location.size(); i++)
+		{
+			inBucket_location[i] += bucket_velocity * 0.016f;
+			Move_inBucket(i);
+		}
+
+		if ((bucket_location.x + bucket_size.x >= 1.0f) || (bucket_location.x - bucket_size.x <= -1.0f))
+			bucket_velocity.x = -bucket_velocity.x;
+	}
+
+	bool is_in_bucket(glm::vec3 location,int index) {
+		if (location.x > bucket_location.x - (0.9f * bucket_size.x) && location.x < bucket_location.x + (0.9f * bucket_size.x)) //x좌표 상에는 안쪽
+		{
+			if (location.y > bucket_location.y - (0.9f * bucket_size.y)) //y좌표가 버켓의 바닥보다 위에있다. 천장보다 아래인지는 호출할때 확인
+			{
+				//cout << "It's in Bucket" << endl;
+				this->push_in_bucket(index);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	void push_in_bucket(int index) {
+		inBucket_vertex.push_back(onShape[index]);
+		inBucket_index.push_back(onShapeindex[index]);
+		inBucket_location.push_back(location[index]);
+		velocity[index].x = 0;
+		inBucket_velocity.push_back(velocity[index]);
+		inBucket_colors.push_back(colors[index]);
+		destroyFunc(index);
+	}
+
+	bool toched_boundary(glm::vec3 location, int index) {
+		if (location.x + 0.1 > bucket_location.x - (0.9f * bucket_size.x) && location.x - 0.1 < bucket_location.x + (0.9f * bucket_size.x))
+			return true;
+		return false;
+	}
+
+	void add_velocity(int index) {
+		velocity[index].x += bucket_velocity.x * 1.1;
+	}
+
+	void Set_inBucket(int inBucketindex) {
+		glBindVertexArray(inBucket_VAO);
+		glBindBuffer(GL_ARRAY_BUFFER, inBucket_VAO);
+		glBufferData(GL_ARRAY_BUFFER, inBucket_vertex[inBucketindex].size() * sizeof(glm::vec3), inBucket_vertex[inBucketindex].data(), GL_STATIC_DRAW);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, inBucket_EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, inBucket_index[inBucketindex].size() * sizeof(unsigned int), inBucket_index[inBucketindex].data(), GL_STATIC_DRAW);
+
+		GLint positionAttribute = glGetAttribLocation(shaderProgramID, "positionAttribute");
+		glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(positionAttribute);
+		glBindVertexArray(0);
+	}
+
+	void Draw_inBucket() {
+		for (int i = 0; i < inBucket_index.size(); i++)
+		{
+			Set_inBucket(i);
+
+			glBindVertexArray(inBucket_VAO);
+
+			glm::mat4 TR = glm::mat4(1.0f);
+			unsigned int modelLocation = glGetUniformLocation(shaderProgramID, "transform");
+			unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
+
+			TR = glm::translate(TR, inBucket_location[i]);
+			TR = glm::scale(TR, glm::vec3(.1, .1, .1));
+
+			glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
+			glUniform3f(colorLocation, inBucket_colors[i].x, inBucket_colors[i].y, inBucket_colors[i].z);
+
+			glDrawElements(GL_TRIANGLES, inBucket_index[i].size(), GL_UNSIGNED_INT, (void*)(0));
+		}
+	}
+
+	void Move_inBucket(int inBucketindex) {
+		if (inBucket_location[inBucketindex].x > bucket_location.x - (0.9f * bucket_size.x) && 
+			inBucket_location[inBucketindex].x < bucket_location.x + (0.9f * bucket_size.x)) //x좌표 상에는 안쪽
+		{
+			if (inBucket_location[inBucketindex].y > bucket_location.y - (0.9f * bucket_size.y))
+			{
+				inBucket_velocity[inBucketindex] += gravity * 0.016f;
+			}
+			else
+			{
+				inBucket_velocity[inBucketindex].y = 0.0f;
+			}
+		}
+		inBucket_location[inBucketindex] += inBucket_velocity[inBucketindex] * 0.016f;
+	}
+
+private:
+	std::vector<glm::vec3> Bucket_vertex = {
+		glm::vec3(-1.1,1.0,0),
+		glm::vec3(-0.9,1.0,0),
+
+		glm::vec3(-1.1,-0.9,0),
+
+		glm::vec3(-1.1,-1.1,0),
+		glm::vec3(-0.9,-1.1,0),
+
+		glm::vec3(1.1,-0.9,0),
+
+		glm::vec3(1.1,-1.1,0),
+		glm::vec3(0.9,-1.1,0),
+
+		glm::vec3(1.1,1.0,0),
+		glm::vec3(0.9,1.0,0)
+	};
+	std::vector<unsigned int> Bucket_index = {
+		3,1,0,
+		3,4,1,
+		3,6,2,
+		6,5,2,
+		9,7,6,
+		9,6,8
+	};
+	glm::vec3 bucket_location = { 0,-0.8,0 };
+	glm::vec3 bucket_velocity = { 0.5,0,0 };
+	glm::vec3 bucket_size = { .15,.15,.1 };
+
+	std::vector<std::vector<glm::vec3>> inBucket_vertex = {};
+	std::vector<std::vector<unsigned int>> inBucket_index = {};
+	std::vector<glm::vec3> inBucket_location = {};
+	std::vector<glm::vec3> inBucket_velocity = {};
+	std::vector<glm::vec3> inBucket_colors = {};
+
+	GLuint inBucket_VAO, inBucket_EBO;
+	GLuint inBucket_VBO;
+
+	GLuint Bucket_VAO, Bucket_EBO;
+	GLuint Bucket_VBO;
+};
+
+Bucket bucket;
+
+class Path
+{
+public:
+	void set_point(glm::vec3 newpoint) {
+		Line.push_back(newpoint);
+	}
+	void Draw_Line(int index) {
+		glBindVertexArray(VAO);
+		glBindBuffer(GL_ARRAY_BUFFER, VBO);
+		glBufferData(GL_ARRAY_BUFFER, Line.size() * sizeof(glm::vec3), Line.data(), GL_STATIC_DRAW);
+
+		GLint positionAttribute = glGetAttribLocation(shaderProgramID, "positionAttribute");
+		glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(positionAttribute);
+		glBindVertexArray(0);
+
+		glBindVertexArray(VAO);
+
+		glm::mat4 TR = glm::mat4(1.0f);
+		unsigned int modelLocation = glGetUniformLocation(shaderProgramID, "transform");
+		unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
+
+		glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
+		glUniform3f(colorLocation, colors[index].x, colors[index].y, colors[index].z);
+
+		glDrawArrays(GL_LINE_STRIP, 0, Line.size());
+	}
+
+private:
+	std::vector<glm::vec3> Line;
+};
+
+std::vector<Path> paths;
+
+bool is_Fill = true;
+bool draw_path = false;
+
+float Speed = 1.0f;
+float rotation = 1.0f;
 
 GLvoid InitBuffer()
 {
@@ -329,12 +578,13 @@ void Draw_Shape(int polygonindex) {
 	unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
 
 	TR = glm::translate(TR, location[polygonindex]);
+	TR = glm::rotate(TR, glm::radians(rotation), glm::vec3(0, 0, 1));
 	TR = glm::scale(TR, glm::vec3(.1, .1, .1));
 
 	glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
-	glUniform3f(colorLocation, 1.0, 0.0, 0.0);
+	glUniform3f(colorLocation, colors[polygonindex].x, colors[polygonindex].y, colors[polygonindex].z);
 
-	glDrawElements(GL_TRIANGLES, onShapeindex[polygonindex].size() * 3, GL_UNSIGNED_INT, (void*)(0));
+	glDrawElements(GL_TRIANGLES, onShapeindex[polygonindex].size(), GL_UNSIGNED_INT, (void*)(0));
 }
 
 void Draw_points() {glBindVertexArray(VAO);
@@ -365,7 +615,7 @@ GLvoid drawScene()
 
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	is_Fill ? glPolygonMode(GL_FRONT_AND_BACK, GL_FILL) : glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	glUseProgram(shaderProgramID);
 
@@ -373,13 +623,18 @@ GLvoid drawScene()
 	{
 		Set_VAO(i);
 		Draw_Shape(i);
+		if (draw_path)
+			paths[i].Draw_Line(i);
 	}
 
 	if (b_ML1)
 	{
 		ML1.Draw_Line();
 	}
-	Draw_points();
+	//Draw_points();
+
+	bucket.Draw_inBucket();
+	bucket.Draw_bucket();
 
 	glutSwapBuffers();
 }
@@ -394,49 +649,32 @@ GLvoid destroyFunc(int value) {
 	onShapeindex.erase(onShapeindex.begin() + value);
 	location.erase(location.begin() + value);
 	velocity.erase(velocity.begin() + value);
+	colors.erase(colors.begin() + value);
+	paths.erase(paths.begin() + value);
 }
 
-GLvoid TimerFunction1(int value)
-{
+void throw_new_shape() {
 	int newindex = -1;
-	glutPostRedisplay();
-	switch (value)
+	glm::vec3 newlocation = glm::vec3{ 0,location_y(eng),0 };
+	newindex = rand_shape(eng);
+	onShape.push_back(polygons[newindex]);
+	onShapeindex.push_back(indexTriangles[newindex]);
+	if (left_right(eng))
 	{
-	case 0: //도형 생성 타이머
-		newindex = rand_shape(eng);
-		onShape.push_back(polygons[newindex]);
-		onShapeindex.push_back(indexTriangles[newindex]);
-		location.push_back(glm::vec3{ -1,-1,0 });
-		velocity.push_back(glm::vec3{ 0.5,0.8,0 });
-		//glutTimerFunc(100, TimerFunction1, 0);
-		break;
-	case 1:
-		for (int i = 0; i < onShape.size(); i++)
-		{
-			velocity[i] += glm::vec3(0,-0.3,0) * 0.016f;
-			location[i] += velocity[i] * 0.016f;
-		}
-		glutTimerFunc(16, TimerFunction1, 1);
-		break;
-	default:
-		break;
+		newlocation.x = -1;
+		location.push_back(newlocation);
+		velocity.push_back(glm::vec3{ rand_velocity(eng),rand_velocity(eng),0});
 	}
-
-
-}
-
-GLvoid Keyboard(unsigned char key, int x, int y)
-{
-	vector<int> new_opnenface = {};
-	switch (key) {
-	case 'r':
-		intersectionPoints.clear();
-		break;
-	case 'q':
-		glutLeaveMainLoop();
-		break;
+	else
+	{
+		newlocation.x = 1;
+		location.push_back(newlocation);
+		velocity.push_back(glm::vec3{ -rand_velocity(eng),rand_velocity(eng),0});
 	}
-	glutPostRedisplay();
+	colors.push_back(color_ref[rand_color(eng)]);
+	Path newpath;
+	newpath.set_point(newlocation);
+	paths.push_back(newpath);
 }
 
 bool doIntersect(glm::vec2 p1, glm::vec2 p2, glm::vec2 q1, glm::vec2 q2, glm::vec2& intersection,int index) {
@@ -529,6 +767,9 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	newIndices2 = CreateTriangleIndexList(newVertices2);
 	glm::vec3 cur_location = location[shapeIndex];
 	glm::vec3 cur_velocity = velocity[shapeIndex];
+	glm::vec3 cur_color = colors[shapeIndex];
+	Path cur_path = paths[shapeIndex];
+	cur_path.set_point(cur_location);
 
 	// 기존 도형 삭제
 	destroyFunc(shapeIndex);
@@ -538,11 +779,15 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	onShapeindex.push_back(newIndices1);
 	location.push_back(cur_location);
 	velocity.push_back(glm::vec3(-.1, cur_velocity.y +.1, cur_velocity.z));
+	colors.push_back(cur_color);
+	paths.push_back(cur_path);
 
 	onShape.push_back(newVertices2);
 	onShapeindex.push_back(newIndices2);
 	location.push_back(cur_location);
 	velocity.push_back(glm::vec3(.1, cur_velocity.y -.1, cur_velocity.z));
+	colors.push_back(cur_color);
+	paths.push_back(cur_path);
 
 	intersectionPoints.clear();
 }
@@ -551,13 +796,14 @@ void SplitPolygonByIntersection(int shapeIndex) {
 bool checkIntersections(const glm::vec2& lineStart, const glm::vec2& lineEnd, const std::vector<glm::vec3>& polygon, int index) {
 	glm::vec2 intersection;
 	int Intersections = 0;
+	
 	for (size_t i = 0; i < polygon.size(); ++i) {
 		glm::vec2 p1 = glm::vec2((polygon[i].x * 0.1f) + location[index].x, (polygon[i].y * 0.1f) + location[index].y);
 		glm::vec2 p2 = glm::vec2((polygon[(i + 1) % polygon.size()].x * 0.1f) + location[index].x, (polygon[(i + 1) % polygon.size()].y * 0.1f) + location[index].y);
 
 		if (doIntersect(lineStart, lineEnd, p1, p2, intersection, index)) {
 			intersection = (intersection - glm::vec2(location[index].x, location[index].y)) * 10.0f;
-			cout << "Intersection at: (" << intersection.x << ", " << intersection.y << ")" << endl;
+			//cout << "Intersection at: (" << intersection.x << ", " << intersection.y << ")" << endl;
 			intersectionPoints.push_back(glm::vec3(intersection.x, intersection.y, 0));
 			Intersections++;
 		}
@@ -572,6 +818,83 @@ bool checkIntersections(const glm::vec2& lineStart, const glm::vec2& lineEnd, co
 	{
 		return true;
 	}
+}
+
+GLvoid TimerFunction1(int value)
+{
+	glutPostRedisplay();
+	switch (value)
+	{
+	case 0: //도형 생성 타이머
+		throw_new_shape();
+		glutTimerFunc(3000, TimerFunction1, 0);
+		break;
+	case 1:
+		for (int i = 0; i < onShape.size(); i++)
+		{
+			velocity[i] += (gravity * Speed) * 0.016f;
+			location[i] += velocity[i] * Speed * 0.016f;
+			if (location[i].y <= -0.6)
+				if (!bucket.is_in_bucket(location[i], i)) //true면 x범위 안쪽 y가 버켓보다 아래임 / false확인이니 x범위가 밖인 것들만 if문 실행
+					if (bucket.toched_boundary(location[i], i)) //경계에 닿았으면
+						bucket.add_velocity(i);
+		}
+
+		for (int i = 0; i < onShape.size(); i++)
+			if (location[i].y < -1.0)
+				destroyFunc(i);
+
+		bucket.Move_bucket();
+
+		for (int i = 0; i < onShape.size(); i++)
+		{
+			for (size_t j = 0; j < onShape[i].size(); j++)
+			{
+				glm::mat4 TR = glm::mat4(1.0f);
+				TR = glm::rotate(TR, glm::radians(rotation), glm::vec3(0, 0, 1));
+				glm::vec4 newpoint = TR * glm::vec4(onShape[i][j], 1.0);
+				onShape[i][j] = glm::vec3(newpoint.x, newpoint.y, newpoint.z);
+			}
+		}
+		glutTimerFunc(16, TimerFunction1, 1);
+		break;
+	case 2:
+		for (int i = 0; i < onShape.size(); i++)
+		{
+			paths[i].set_point(location[i]);
+		}
+		glutTimerFunc(300, TimerFunction1, 2);
+		break;
+	default:
+		break;
+	}
+
+
+}
+
+GLvoid Keyboard(unsigned char key, int x, int y)
+{
+	vector<int> new_opnenface = {};
+	switch (key) {
+	case 'm':
+		is_Fill = !is_Fill;
+		break;
+	case 'p':
+		draw_path = !draw_path;
+		break;
+	case '+':
+		if (Speed < 10.0f)
+			Speed += 0.1f;
+		break;
+	case '-':
+		if (Speed > 0.1f)
+			Speed -= 0.1f;
+		break;
+	case 'q':
+		glutLeaveMainLoop();
+		break;
+	}
+	glutPostRedisplay();
 }
 
 void Mouse(int button, int state, int x, int y)
@@ -598,7 +921,7 @@ void Mouse(int button, int state, int x, int y)
 			}
 		}
 
-		ML1.Debug_print_xy();
+		//ML1.Debug_print_xy();
 	}
 	glutPostRedisplay();
 }
@@ -639,9 +962,10 @@ int main(int argc, char** argv)
 	}
 
 	InitBuffer();
-
+	bucket.init();
 	glutTimerFunc(100, TimerFunction1, 0);
 	glutTimerFunc(16, TimerFunction1, 1);
+	glutTimerFunc(300, TimerFunction1, 2);
 
 	glutDisplayFunc(drawScene);
 	glutReshapeFunc(Reshape);
