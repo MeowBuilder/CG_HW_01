@@ -40,7 +40,7 @@ GLuint VBO;
 
 int curindex = 0;
 
-// 다각형의 정점 좌표들을 저장하는 벡터 생성
+// 다각형의 정점 좌표들을 저장하는 벡터
 std::vector<std::vector<glm::vec3>> polygons = {
 	// 3각형
 	{
@@ -327,7 +327,7 @@ public:
 
 	void Set_inBucket(int inBucketindex) {
 		glBindVertexArray(inBucket_VAO);
-		glBindBuffer(GL_ARRAY_BUFFER, inBucket_VAO);
+		glBindBuffer(GL_ARRAY_BUFFER, Bucket_VBO);
 		glBufferData(GL_ARRAY_BUFFER, inBucket_vertex[inBucketindex].size() * sizeof(glm::vec3), inBucket_vertex[inBucketindex].data(), GL_STATIC_DRAW);
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, inBucket_EBO);
@@ -680,21 +680,16 @@ void throw_new_shape() {
 bool doIntersect(glm::vec2 p1, glm::vec2 p2, glm::vec2 q1, glm::vec2 q2, glm::vec2& intersection,int index) {
 	glm::vec2 r = p2 - p1;
 	glm::vec2 s = q2 - q1;
+	
+	float rxs = r.x * s.y - r.y * s.x;
 
-	float rxs = r.x * s.y - r.y * s.x; // Cross product
-	float qp_r = (q1 - p1).x * r.y - (q1 - p1).y * r.x; // Cross product
-
-	// Check if the lines are parallel
-	if (rxs == 0) {
-		return false; // Collinear or parallel
-	}
-
+	if (rxs == 0) return false;
+	
 	float t = ((q1 - p1).x * s.y - (q1 - p1).y * s.x) / rxs;
-	float u = qp_r / rxs;
+	float u = ((q1 - p1).x * r.y - (q1 - p1).y * r.x) / rxs;
 
-	// Check if the intersection point is within both segments
 	if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-		intersection = p1 + t * r; // Calculate the intersection point
+		intersection = p1 + t * r;
 		return true;
 	}
 	return false;
@@ -703,15 +698,13 @@ bool doIntersect(glm::vec2 p1, glm::vec2 p2, glm::vec2 q1, glm::vec2 q2, glm::ve
 std::vector<unsigned int> CreateTriangleIndexList(const std::vector<glm::vec3>& vertices) {
 	std::vector<unsigned int> indices;
 
-	// 주어진 정점의 개수가 3개 미만이면 삼각형을 만들 수 없음
 	if (vertices.size() < 3) {
-		std::cerr << "Not enough vertices to form triangles." << std::endl;
+		std::cerr << "Error: 정점이 3개 미만 - 삼각형을 만들 수 없음." << std::endl;
 		return indices;
 	}
 
 	size_t vertexCount = vertices.size();
 
-	// 모든 정점에서 다른 정점으로 삼각형 인덱스 생성
 	for (size_t i = 0; i < vertexCount; ++i) {
 		for (size_t j = i + 1; j < vertexCount; ++j) {
 			for (size_t k = j + 1; k < vertexCount; ++k) {
@@ -726,16 +719,13 @@ std::vector<unsigned int> CreateTriangleIndexList(const std::vector<glm::vec3>& 
 }
 
 void SplitPolygonByIntersection(int shapeIndex) {
-	// 기존 도형의 정점 및 인덱스 가져오기
 	std::vector<glm::vec3>& originalVertices = onShape[shapeIndex];
 
-	// 분리된 두 도형을 저장할 새로운 벡터 초기화
 	std::vector<glm::vec3> newVertices1, newVertices2;
 	std::vector<unsigned int> newIndices1, newIndices2;
 
-	// Ensure there are two intersection points to define the line segment
 	if (intersectionPoints.size() < 2) {
-		std::cerr << "Error: Less than two intersection points found." << std::endl;
+		std::cerr << "Error: 정점이 2개 미만 - 분리 불가능한 도형임." << std::endl;
 		return;
 	}
 
@@ -750,10 +740,10 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	// intersectionPoints를 기준으로 기존 정점 리스트를 두 개로 분리
 	for (const auto& vertex : originalVertices) {
 		if (isLeftOrAbove(vertex)) {
-			newVertices1.push_back(vertex); // Left or above
+			newVertices1.push_back(vertex); // 왼쪽 or 위
 		}
 		else {
-			newVertices2.push_back(vertex); // Right or below
+			newVertices2.push_back(vertex); // 오른쪽 or 아래
 		}
 	}
 
@@ -765,6 +755,8 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	// 새로운 인덱스 리스트 생성
 	newIndices1 = CreateTriangleIndexList(newVertices1);
 	newIndices2 = CreateTriangleIndexList(newVertices2);
+
+	// 기존 도형의 정보를 복사
 	glm::vec3 cur_location = location[shapeIndex];
 	glm::vec3 cur_velocity = velocity[shapeIndex];
 	glm::vec3 cur_color = colors[shapeIndex];
@@ -774,7 +766,7 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	// 기존 도형 삭제
 	destroyFunc(shapeIndex);
 
-	// 분리된 도형을 onShape와 onShapeindex에 추가
+	// 분리된 도형에 기존 도형의 정보를 추가
 	onShape.push_back(newVertices1);
 	onShapeindex.push_back(newIndices1);
 	location.push_back(cur_location);
@@ -789,10 +781,10 @@ void SplitPolygonByIntersection(int shapeIndex) {
 	colors.push_back(cur_color);
 	paths.push_back(cur_path);
 
+	// 교차점 vector 초기화
 	intersectionPoints.clear();
 }
 
-// Function to check for intersections with all edges of a polygon
 bool checkIntersections(const glm::vec2& lineStart, const glm::vec2& lineEnd, const std::vector<glm::vec3>& polygon, int index) {
 	glm::vec2 intersection;
 	int Intersections = 0;
@@ -820,14 +812,14 @@ bool checkIntersections(const glm::vec2& lineStart, const glm::vec2& lineEnd, co
 	}
 }
 
-GLvoid TimerFunction1(int value)
+GLvoid TimerFunction(int value)
 {
 	glutPostRedisplay();
 	switch (value)
 	{
 	case 0: //도형 생성 타이머
 		throw_new_shape();
-		glutTimerFunc(3000, TimerFunction1, 0);
+		glutTimerFunc(3000, TimerFunction, 0);
 		break;
 	case 1:
 		for (int i = 0; i < onShape.size(); i++)
@@ -856,14 +848,14 @@ GLvoid TimerFunction1(int value)
 				onShape[i][j] = glm::vec3(newpoint.x, newpoint.y, newpoint.z);
 			}
 		}
-		glutTimerFunc(16, TimerFunction1, 1);
+		glutTimerFunc(16, TimerFunction, 1);
 		break;
 	case 2:
 		for (int i = 0; i < onShape.size(); i++)
 		{
 			paths[i].set_point(location[i]);
 		}
-		glutTimerFunc(300, TimerFunction1, 2);
+		glutTimerFunc(300, TimerFunction, 2);
 		break;
 	default:
 		break;
@@ -963,9 +955,9 @@ int main(int argc, char** argv)
 
 	InitBuffer();
 	bucket.init();
-	glutTimerFunc(100, TimerFunction1, 0);
-	glutTimerFunc(16, TimerFunction1, 1);
-	glutTimerFunc(300, TimerFunction1, 2);
+	glutTimerFunc(100, TimerFunction, 0);
+	glutTimerFunc(16, TimerFunction, 1);
+	glutTimerFunc(300, TimerFunction, 2);
 
 	glutDisplayFunc(drawScene);
 	glutReshapeFunc(Reshape);
