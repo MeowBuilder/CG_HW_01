@@ -22,10 +22,17 @@ onShapeindex, location, velocity, colors와 후술할 경로저장 벡터인 pat
 	checkIntersections에서 각 도형의 정점의 화면상 좌표를 구하고 다시 도형좌표계로 변환한 방법 : 각 도형의 정점에 도형의 변환행렬을 적용시킨 것처럼 location을 더하고 사이즈를 0.1을 곱한다. 이후 교차점을 구하면 교차점에 location을 빼주어 원점으로 되돌리고 10을 곱해 다시 -1~1의 좌표계인 도형좌표계로 변환시킨다.
 	SplitPolygonByIntersection에서 도형을 나누는 방법 : originalVertices에 기존 도형의 정점들을 복사하고 새 도형의 정점버퍼와 인덱스 버퍼를 저장할 newVertices1,2 / newIndices1,2를 만든다. p1,p2에 두 교차점을 초기화 시키고 p2-p1과 도형의각정점-p1의 외적을 계산해 p2-p1을 기준으로 왼쪽이나 위에 있는 정점들과 오른쪽이나 아래에 있는 정점으로 나누어 저장한다. 이후 기준점이 된 p1과 p2도 저장한 다음에 CreateTriangleIndexList(newVertices) 함수를 통해 각 정점에서 모든 정점과의 삼각형을 만들어 newIndices1에 삼각형 리스트를 저장한다. 이후 기존 도형의 정보들을 복사하여 각 도형에 저장한 다음 왼쪽에 있던 정점들로 만들어진 도형은 살짝 왼쪽 위로 속력을 추가하고 오른쪽에 있던 정점들로 만들어진 도형은 오른쪽 아래로 속력을 추가하여 다른 방향으로 떨어지게 만들었다.
 
-7. 화면 밖으로 나가면 사라진다.
-8. 도형의 모드(LINE/FILL)
-9. 경로 출력하기
-10. 날아오는 속도 조절
+5. 화면 밖으로 나가면 사라진다.
+	구현 방법 : 도형의 location.y가 -1 이하가 되면 destroyFunc(index)가 호출되어 도형이 사라진다.
+
+6. 도형의 모드(LINE/FILL)
+	구현 방법 : isFill이라는 bool값을 설정하여 false면 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); true면 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)로 설정하여 도형이 선이거나 면으로 출력된다.
+
+7. 경로 출력하기
+	저장 형태 : Path라는 클래스를 만들어 각 도형마다의 경로를 저장하게 만들었고 Path의 벡터를 만들어 여러개의 도형의 경로들을 저장하였다. 
+	구현 방법 : TimerFunction(2)에서 300ms마다 paths[i]에 현재 i 도형의 위치를 저장한다. 이때 Path의 함수 setpoint를 호출하여 path내의 벡터에 저장하게 된다. 출력은 Path의 Draw_Line을 통해 벡터내의 모든 정점을 잇는 선분을 그린다. 해당 경로로 지나간 도형이 분리된다면 분리된 시점부터 따로 경로가 저장된다(이전에 날아온 경로는 유지된다.). 해당 경로로 지나간 도형이 -1이하로 내려가거나 바구니에 담겨 destroyFunc가 호출된다면 해당 경로또한 삭제된다.
+
+8. 날아오는 속도 조절
 
 A - 2. 보너스 요소
 1. 여러번 슬라이스, 자유 슬라이스
