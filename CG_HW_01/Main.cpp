@@ -21,6 +21,8 @@ mt19937 eng(static_cast<mt19937::result_type>(seed));
 uniform_int_distribution<int> left_right(0, 1);
 uniform_real_distribution<float> location_y(-0.3, 0.5);
 uniform_real_distribution<float> rand_velocity(0.01, 0.75);
+uniform_real_distribution<float> rand_wind_x(-0.25, 0.25);
+uniform_real_distribution<float> rand_wind_y(-0.1, 0.1);
 
 GLvoid destroyFunc(int value);
 
@@ -461,6 +463,8 @@ bool draw_path = false;
 float Speed = 1.0f;
 float rotation = 1.0f;
 
+glm::vec3 Wind = glm::vec3(0.0, 0.0, 0.0);
+
 GLvoid InitBuffer()
 {
 	//--- VAO와 VBO 객체 생성
@@ -608,6 +612,35 @@ void Draw_points() {glBindVertexArray(VAO);
 	glDrawArrays(GL_POINTS, 0, intersectionPoints.size());
 }
 
+void Draw_Wind() {
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, polygons[0].size() * sizeof(glm::vec3), polygons[0].data(), GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexTriangles[0].size() * sizeof(unsigned int), indexTriangles[0].data(), GL_STATIC_DRAW);
+
+	GLint positionAttribute = glGetAttribLocation(shaderProgramID, "positionAttribute");
+	glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(positionAttribute);
+	glBindVertexArray(0);
+
+	glBindVertexArray(VAO);
+
+	unsigned int modelLocation = glGetUniformLocation(shaderProgramID, "transform");
+	unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
+
+	glm::mat4 TR = glm::mat4(1.0f);
+	TR = glm::translate(TR, glm::vec3(0,0,0));
+	//TR = glm::rotate(TR, glm::atan(Wind.y/Wind.x), glm::vec3(0, 0, 1));
+	TR = glm::scale(TR, glm::vec3(.1, .1, .1));
+
+	glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
+	glUniform3f(colorLocation, 1,1,1);
+
+	glDrawElements(GL_TRIANGLES, indexTriangles[0].size(), GL_UNSIGNED_INT, (void*)(0));
+}
+
 GLvoid drawScene()
 {
 	glClearColor(background_rgb.x, background_rgb.y, background_rgb.z, 1.0f);
@@ -631,10 +664,12 @@ GLvoid drawScene()
 	{
 		ML1.Draw_Line();
 	}
-	//Draw_points();
 
 	bucket.Draw_inBucket();
 	bucket.Draw_bucket();
+
+	//Draw Wind
+	Draw_Wind();
 
 	glutSwapBuffers();
 }
@@ -824,7 +859,7 @@ GLvoid TimerFunction(int value)
 	case 1:
 		for (int i = 0; i < onShape.size(); i++)
 		{
-			velocity[i] += (gravity * Speed) * 0.016f;
+			velocity[i] += ((gravity * Speed) + Wind) * 0.016f;
 			location[i] += velocity[i] * Speed * 0.016f;
 			if (location[i].y <= -0.6)
 				if (!bucket.is_in_bucket(location[i], i)) //true면 x범위 안쪽 y가 버켓보다 아래임 / false확인이니 x범위가 밖인 것들만 if문 실행
@@ -856,6 +891,11 @@ GLvoid TimerFunction(int value)
 			paths[i].set_point(location[i]);
 		}
 		glutTimerFunc(300, TimerFunction, 2);
+		break;
+	case 3:
+		Wind = glm::vec3(rand_wind_x(eng), rand_wind_y(eng), 0);
+		cout << "Cur Wind : " << Wind.x << ", " << Wind.y << ", " << Wind.z << endl;
+		glutTimerFunc(6000, TimerFunction, 3);
 		break;
 	default:
 		break;
@@ -958,6 +998,7 @@ int main(int argc, char** argv)
 	glutTimerFunc(100, TimerFunction, 0);
 	glutTimerFunc(16, TimerFunction, 1);
 	glutTimerFunc(300, TimerFunction, 2);
+	glutTimerFunc(0, TimerFunction, 3);
 
 	glutDisplayFunc(drawScene);
 	glutReshapeFunc(Reshape);
