@@ -464,6 +464,7 @@ float Speed = 1.0f;
 float rotation = 1.0f;
 
 glm::vec3 Wind = glm::vec3(0.0, 0.0, 0.0);
+bool windy = true;
 
 GLvoid InitBuffer()
 {
@@ -613,12 +614,14 @@ void Draw_points() {glBindVertexArray(VAO);
 }
 
 void Draw_Wind() {
+	std::vector<glm::vec3> wind_tri = {
+		glm::vec3(0.0,1.0,0),
+		glm::vec3(-0.5,-1.0,0),
+		glm::vec3(0.5,-1.0,0),
+	};
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, polygons[0].size() * sizeof(glm::vec3), polygons[0].data(), GL_STATIC_DRAW);
-
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexTriangles[0].size() * sizeof(unsigned int), indexTriangles[0].data(), GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, wind_tri.size() * sizeof(glm::vec3), wind_tri.data(), GL_STATIC_DRAW);
 
 	GLint positionAttribute = glGetAttribLocation(shaderProgramID, "positionAttribute");
 	glVertexAttribPointer(positionAttribute, 3, GL_FLOAT, GL_FALSE, 0, 0);
@@ -631,14 +634,14 @@ void Draw_Wind() {
 	unsigned int colorLocation = glGetUniformLocation(shaderProgramID, "colorAttribute");
 
 	glm::mat4 TR = glm::mat4(1.0f);
-	TR = glm::translate(TR, glm::vec3(0,0,0));
-	//TR = glm::rotate(TR, glm::atan(Wind.y/Wind.x), glm::vec3(0, 0, 1));
-	TR = glm::scale(TR, glm::vec3(.1, .1, .1));
+	TR = glm::translate(TR, glm::vec3(0.8,0.8,0));
+	TR = glm::rotate(TR, atan2(-Wind.x,Wind.y), glm::vec3(0, 0, 1));
+	TR = glm::scale(TR, glm::vec3(.1, .1 * glm::length(glm::vec2(Wind.x*10, Wind.y*10)), .1));
 
 	glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(TR));
 	glUniform3f(colorLocation, 1,1,1);
 
-	glDrawElements(GL_TRIANGLES, indexTriangles[0].size(), GL_UNSIGNED_INT, (void*)(0));
+	glDrawArrays(GL_TRIANGLES, 0, wind_tri.size() * 3);
 }
 
 GLvoid drawScene()
@@ -893,8 +896,11 @@ GLvoid TimerFunction(int value)
 		glutTimerFunc(300, TimerFunction, 2);
 		break;
 	case 3:
-		Wind = glm::vec3(rand_wind_x(eng), rand_wind_y(eng), 0);
-		cout << "Cur Wind : " << Wind.x << ", " << Wind.y << ", " << Wind.z << endl;
+		if (windy)
+		{
+			Wind = glm::vec3(rand_wind_x(eng), rand_wind_y(eng), 0);
+			cout << "Cur Wind : " << Wind.x << ", " << Wind.y << ", " << Wind.z << endl;
+		}
 		glutTimerFunc(6000, TimerFunction, 3);
 		break;
 	default:
@@ -921,6 +927,10 @@ GLvoid Keyboard(unsigned char key, int x, int y)
 	case '-':
 		if (Speed > 0.1f)
 			Speed -= 0.1f;
+		break;
+	case 'w':
+		Wind = glm::vec3(0, 0, 0);
+		windy = !windy;
 		break;
 	case 'q':
 		glutLeaveMainLoop();
